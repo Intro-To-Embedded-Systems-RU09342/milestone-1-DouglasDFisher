@@ -37,18 +37,13 @@
 
 /*
  * Milestone 1:
- * Stranger Things
+ * Stranger Things Wall
  *
  * Author: Douglas Fisher, Nick Papas
  */
 
-int count;
-
-void SendUCA0Data(uint8_t data)
-{
-    while (!(IFG2&UCA0TXIFG));                // USCI_A0 TX buffer ready?
-    UCA0TXBUF = data;
-}
+//Global Variables
+int count, length;
 
 //******************************************************************************
 // Device Initialization *******************************************************
@@ -61,8 +56,10 @@ void initUART()
     UCA0BR1 = 0;                              // 1MHz 9600
     UCA0MCTL = UCBRS0;                        // Modulation UCBRSx = 1
     UCA0CTL1 &= ~UCSWRST;                     // **Initialize USCI state machine**
-    IFG2 &= ~(UCA0RXIFG);
-    IE2 |= UCA0RXIE;
+    IFG2 &= ~(UCA0RXIFG);                     // Clears interrupt flag
+    IE2 |= UCA0RXIE;                          // Enables Interrupt
+    count = 0;                                //Resets package count variable
+    length = 0;                               //Resets package length variable
 }
 
 void initGPIO()
@@ -75,8 +72,6 @@ void initGPIO()
     P2SEL |= BIT1;                            //set P2.1 to use PWM
     P2DIR |= BIT5;                            //set P2.5 to output
     P2SEL |= BIT5;                            //set P2.5 to use PWM
-
-    count = 0;
 }
 
 void initTimer()
@@ -97,6 +92,16 @@ void initTimer()
 }
 
 //******************************************************************************
+// Functions *******************************************************************
+//******************************************************************************
+
+void SendUCA0Data(uint8_t data)
+{
+    while (!(IFG2&UCA0TXIFG));                // USCI_A0 TX buffer ready
+    UCA0TXBUF = data;                         // Load Tx buffer
+}
+
+//******************************************************************************
 // Main ************************************************************************
 //******************************************************************************
 
@@ -108,13 +113,13 @@ void main()
     BCSCTL1 = CALBC1_1MHZ;                    // Set DCO
     DCOCTL = CALDCO_1MHZ;
 
-    initUART();
-    initGPIO();
-    initTimer();
+    initUART();                               // Initializes Uart
+    initGPIO();                               // Initializes outputs and pins
+    initTimer();                              // Initializes timers
 
-    __bis_SR_register(LPM0_bits + GIE);       //Enter LPM0, interrupts enabled
+    __bis_SR_register(LPM0_bits + GIE);       // Enter LPM0, interrupts enabled
 
-    while(1);
+    while(1);                                 // Infinite loop
 }
 
 //******************************************************************************
@@ -124,29 +129,30 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCI0RX_ISR (void)
 {
     if (IFG2 & UCA0RXIFG)
     {
-        uint8_t rx_val = UCA0RXBUF; //Must read UCxxRXBUF to clear the flag
+        uint8_t rx_val = UCA0RXBUF;           // Must read UCxxRXBUF to clear the flag
 
-        switch (count) {            //Switch for position in EUART
-        case 0:                     //Case length
-            SendUCA0Data(rx_val - 3);
+        switch (count) {                      // Switch for position in EUART
+        case 0:                               // Case length
+            length = rx_val;                  // Stores package legnth
+            SendUCA0Data(rx_val - 3);         // Sends new package length
             break;
-        case 1:                     //Case Red
-            TA0CCR1 = rx_val;
+        case 1:                               // Case Red
+            TA0CCR1 = rx_val;                 // Sets the red duty cycle
             break;
-        case 2:                     //Case Green
-            TA1CCR1 = rx_val;
+        case 2:                               // Case Green
+            TA1CCR1 = rx_val;                 // Sets the green duty cycle
             break;
-        case 3:                     //Case Blue
-            TA1CCR2 = rx_val;
+        case 3:                               // Case Blue
+            TA1CCR2 = rx_val;                 // Sets the blue duty cycle
             break;
         default:
-            SendUCA0Data(rx_val);
+            SendUCA0Data(rx_val);             // Sends byte
         }
 
-        if(rx_val == 0x0D) {
-            count = 0;
+        if(length == count - 1) {             // Checks for end of package
+            count = 0;                        // Resets package count variable
             return;
         }
-        count++;
+        count++;                              // Increments the package count variable
     }
 }
